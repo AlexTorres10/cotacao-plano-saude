@@ -7,8 +7,6 @@ st.title("Cotação de Planos de Saúde")
 
 # Upload ou carregamento do Excel
 df = pd.read_excel("planos_de_saude_unificado.xlsx", engine="openpyxl")
-st.write("Visualização dos dados carregados (apenas para teste):")
-st.dataframe(df.head())
 # Entrada do usuário
 idade = st.number_input("Informe sua idade", min_value=0, max_value=120, step=1)
 
@@ -19,10 +17,8 @@ if st.button("Fazer cotação"):
             min_idade = int(faixa_etaria.replace('+', '').strip())
             return idade >= min_idade
         else:
-            partes = faixa_etaria.replace('anos', '').replace(' ', '').split('a')
-            if len(partes) == 2:
-                return int(partes[0]) <= idade <= int(partes[1])
-            return False
+            partes = faixa_etaria.split('-')
+            return int(partes[0]) <= idade <= int(partes[1])
 
     # Filtra os planos compatíveis com a idade
     planos_filtrados = df[df["Idade"].apply(lambda x: idade_na_faixa(idade, x))]
@@ -43,6 +39,13 @@ if st.button("Fazer cotação"):
         - **Enfermaria:** quarto coletivo, geralmente com 2 ou mais pacientes.
         - **Apartamento:** quarto individual, com maior privacidade e conforto.
         """)
+
+        colunas_monetarias = ["Enfermaria", "Apartamento"]
+
+        for col in colunas_monetarias:
+            planos_filtrados[col] = planos_filtrados[col].apply(
+                lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
+            )
 
         # Mostra os planos
         st.dataframe(planos_filtrados.reset_index(drop=True))
