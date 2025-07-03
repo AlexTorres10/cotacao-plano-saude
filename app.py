@@ -26,6 +26,15 @@ if st.button("Fazer cotação"):
     if planos_filtrados.empty:
         st.warning("Nenhum plano encontrado para essa faixa etária.")
     else:
+        colunas_monetarias = ["Enfermaria", "Apartamento"]
+
+        for col in colunas_monetarias:
+            planos_filtrados[col] = planos_filtrados[col].apply(
+                lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
+            )
+
+        # Mostra os planos
+        st.dataframe(planos_filtrados.reset_index(drop=True), use_container_width=True, hide_index=True)
         # Explicação sobre coparticipação
         st.markdown("""
         ### 🔍 Entenda a Coparticipação
@@ -40,12 +49,4 @@ if st.button("Fazer cotação"):
         - **Apartamento:** quarto individual, com maior privacidade e conforto.
         """)
 
-        colunas_monetarias = ["Enfermaria", "Apartamento"]
-
-        for col in colunas_monetarias:
-            planos_filtrados[col] = planos_filtrados[col].apply(
-                lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
-            )
-
-        # Mostra os planos
-        st.dataframe(planos_filtrados.reset_index(drop=True))
+        
