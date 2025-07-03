@@ -24,7 +24,7 @@ if st.button("Fazer cotação"):
             return False
 
     # Filtra os planos compatíveis com a idade
-    planos_filtrados = df[df["Faixa Etária"].apply(lambda x: idade_na_faixa(idade, x))]
+    planos_filtrados = df[df["Idade"].apply(lambda x: idade_na_faixa(idade, x))]
 
     if planos_filtrados.empty:
         st.warning("Nenhum plano encontrado para essa faixa etária.")
