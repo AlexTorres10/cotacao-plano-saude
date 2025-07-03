@@ -7,7 +7,8 @@ st.title("Cotação de Planos de Saúde")
 
 # Upload ou carregamento do Excel
 df = pd.read_excel("planos_de_saude_unificado.xlsx", engine="openpyxl")
-
+st.write("Visualização dos dados carregados (apenas para teste):")
+st.dataframe(df.head())
 # Entrada do usuário
 idade = st.number_input("Informe sua idade", min_value=0, max_value=120, step=1)
 
