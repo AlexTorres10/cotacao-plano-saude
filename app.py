@@ -4,16 +4,7 @@ from supabase import create_client
 import bcrypt
 from datetime import datetime, timezone, timedelta
 import random
-import locale
 
-# --- Configuração do idioma ---
-try:
-    locale.setlocale(locale.LC_TIME, 'pt_BR.UTF-8')
-except:
-    try:
-        locale.setlocale(locale.LC_TIME, 'pt_BR')
-    except:
-        st.warning("⚠️ Não foi possível aplicar o idioma português ao calendário.")
 
 # --- Conexão com Supabase ---
 SUPABASE_URL = st.secrets["supabase"]["url"]
@@ -25,10 +16,14 @@ st.set_page_config(page_title="Cotação de Planos de Saúde", layout="centered"
 
 # --- Funções auxiliares ---
 def formatar_validade(yyyymm):
+    meses_pt = {
+        "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
+        "05": "Maio", "06": "Junho", "07": "Julho", "08": "Agosto",
+        "09": "Setembro", "10": "Outubro", "11": "Novembro", "12": "Dezembro"
+    }
     try:
-        ano, mes = map(int, yyyymm.split('-'))
-        data_falsa = datetime(ano, mes, 1)
-        nome_mes = data_falsa.strftime('%B').capitalize()
+        ano, mes = yyyymm.split('-')
+        nome_mes = meses_pt.get(mes.zfill(2), mes)
         return f"{nome_mes} de {ano}"
     except:
         return yyyymm
