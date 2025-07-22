@@ -146,10 +146,9 @@ if st.button("Fazer cotação"):
     if planos_filtrados.empty:
         st.warning("Nenhum plano encontrado para essa faixa etária.")
     else:
-        for col in ["Enfermaria", "Apartamento"]:
-            planos_filtrados[col] = planos_filtrados[col].apply(
-                lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
-            )
+        planos_filtrados['Preço'] = planos_filtrados['Preço'].apply(
+            lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
+        )
 
         planos_vencidos = planos_filtrados[planos_filtrados["Validade"] < hoje]
 
