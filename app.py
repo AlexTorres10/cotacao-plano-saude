@@ -134,6 +134,35 @@ if st.sidebar.button("Sair"):
 
 # --- Entrada do usuário ---
 idade = st.number_input("Informe sua idade", min_value=0, max_value=120, step=1)
+faixa_de_preco = st.slider(
+    "Filtro por faixa de preço (R$)",
+    min_value=100.0,
+    max_value=4000.0,
+    value=(100.0, 4000.0),
+    step=1.0
+)
+
+df = pd.read_excel("planos_de_saude_unificado.xlsx", engine="openpyxl")
+st.markdown("### Tipo de Plano:")
+tipos_disponiveis = df["Tipo"].dropna().unique().tolist()
+tipos_disponiveis.sort()
+cols = st.columns(len(tipos_disponiveis))
+tipos_selecionados = []
+
+for i, tipo in enumerate(tipos_disponiveis):
+    if cols[i].checkbox(tipo, value=True):
+        tipos_selecionados.append(tipo)
+
+# --- Interface: Filtro por Empresa ---
+st.markdown("### Empresa:")
+empresas = sorted(df["Empresa"].dropna().unique())
+cols_empresa = st.columns(len(empresas))
+empresas_selecionadas = []
+
+for i, empresa in enumerate(empresas):
+    if cols_empresa[i].checkbox(empresa, value=True):
+        empresas_selecionadas.append(empresa)
+
 
 if st.button("Fazer cotação"):
     atualizar_sessao(st.session_state["username"])
@@ -143,9 +172,18 @@ if st.button("Fazer cotação"):
     hoje = datetime.today().strftime("%Y-%m")
     planos_filtrados = df[df["Idade"].apply(lambda x: idade_na_faixa(idade, x))]
 
+    # --- Aplicar Filtros ---
+    planos_filtrados = planos_filtrados[
+        (planos_filtrados["Preço"] >= faixa_de_preco[0]) &
+        (planos_filtrados["Preço"] <= faixa_de_preco[1]) &
+        (planos_filtrados["Tipo"].isin(tipos_selecionados)) &
+        (planos_filtrados["Empresa"].isin(empresas_selecionadas))
+    ]
+
     if planos_filtrados.empty:
         st.warning("Nenhum plano encontrado para essa faixa etária.")
     else:
+        planos_filtrados = planos_filtrados.sort_values("Preço", ascending=False)
         planos_filtrados['Preço'] = planos_filtrados['Preço'].apply(
             lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
         )
@@ -155,12 +193,18 @@ if st.button("Fazer cotação"):
         planos_filtrados["Validade"] = planos_filtrados["Validade"].apply(formatar_validade)
         planos_vencidos["Validade"] = planos_vencidos["Validade"].apply(formatar_validade)
 
-        st.markdown("### ✅ Planos válidos para sua idade:")
-        st.dataframe(planos_filtrados.reset_index(drop=True), use_container_width=True, hide_index=True)
+        st.markdown("### ✅ Planos válidos:")
+        st.dataframe(planos_filtrados.reset_index(drop=True),
+            use_container_width=True,
+            hide_index=True
+        )
 
         if not planos_vencidos.empty:
             st.warning("⚠️ Os planos abaixo perderam a validade e estão com valores possivelmente desatualizados.")
-            st.dataframe(planos_vencidos.reset_index(drop=True), use_container_width=True, hide_index=True)
+            st.dataframe(planos_filtrados.reset_index(drop=True),
+                use_container_width=True,
+                hide_index=True
+            )
 
         st.markdown("""
         ### 🔍 Entenda a Coparticipação
