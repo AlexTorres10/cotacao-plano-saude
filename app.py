@@ -135,7 +135,7 @@ if st.sidebar.button("Sair"):
 # --- Entrada do usuário ---
 idade = st.number_input("Informe sua idade", min_value=0, max_value=120, step=1)
 faixa_de_preco = st.slider(
-    "Filtro por faixa de preço (R$)",
+    "Faixa de preço per capita (R$)",
     min_value=100.0,
     max_value=4000.0,
     value=(100.0, 4000.0),
