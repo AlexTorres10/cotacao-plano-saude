@@ -4,7 +4,7 @@ from supabase import create_client
 import bcrypt
 from datetime import datetime, timezone, timedelta
 import random
-
+import uuid
 
 # --- Conexão com Supabase ---
 SUPABASE_URL = st.secrets["supabase"]["url"]
@@ -13,6 +13,13 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Configuração inicial do app ---
 st.set_page_config(page_title="Cotação de Planos de Saúde", layout="centered")
+
+limite = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+supabase.table("usuarios") \
+    .update({"sessao_ativa": False, "sessao_token": None}) \
+    .eq("sessao_ativa", True) \
+    .lt("ultima_atividade", limite) \
+    .execute()
 
 # --- Funções auxiliares ---
 def formatar_validade(yyyymm):
@@ -62,6 +69,59 @@ def tela_reset_senha():
             }).eq("email", email).execute()
             st.success(f"Sua nova senha temporária é: **{nova_senha}**. Altere após o login.")
 
+def agora_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+def gerar_token():
+    return uuid.uuid4().hex
+
+def marcar_login(supabase, username):
+    token = gerar_token()
+    supabase.table("usuarios").update({
+        "sessao_ativa": True,
+        "sessao_token": token,
+        "ultima_atividade": agora_iso(),
+        # opcional:
+        # "sessao_expira_em": datetime.now(timezone.utc) + timedelta(days=30)
+    }).eq("username", username).execute()
+    return token
+
+def marcar_logout(supabase, username):
+    supabase.table("usuarios").update({
+        "sessao_ativa": False,
+        "sessao_token": None
+    }).eq("username", username).execute()
+
+def checar_sessao_unica(supabase, username, token_local):
+    """Retorna True se a sessão ainda é válida neste dispositivo."""
+    res = supabase.table("usuarios").select("sessao_token,sessao_ativa").eq("username", username).single().execute()
+    if not res.data:
+        return False
+    row = res.data
+    if not row.get("sessao_ativa"):
+        return False
+    return (row.get("sessao_token") == token_local)
+
+def heartbeat(supabase, username):
+    """Atualiza o timestamp para controle de inatividade/limpeza."""
+    supabase.table("usuarios").update({
+        "ultima_atividade": agora_iso()
+    }).eq("username", username).execute()
+
+if st.session_state.get("logged_in"):
+    valido = checar_sessao_unica(
+        supabase,
+        st.session_state["username"],
+        st.session_state.get("sessao_token")
+    )
+    if not valido:
+        st.error("Sua sessão foi encerrada porque houve login em outro dispositivo.")
+        st.session_state.clear()
+        st.rerun()
+    else:
+        # Mantém a sessão viva (e permite sua rotina de limpar inativos)
+        heartbeat(supabase, st.session_state["username"])
+
 # --- Tela de login ---
 def login():
     st.title("Login - Cotação de Planos de Saúde")
@@ -106,6 +166,8 @@ def login():
 
             st.session_state["logged_in"] = True
             st.session_state["username"] = username
+            token = marcar_login(supabase, username)
+            st.session_state["sessao_token"] = token
             st.rerun()
         else:
             st.error("Senha incorreta.")
@@ -124,94 +186,181 @@ if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
     st.stop()
 
 # --- Conteúdo principal ---
-st.title("Cotação de Planos de Saúde")
+st.title("ST Planos de Saúde")
 st.sidebar.success(f"Logado como: {st.session_state['username']}")
 if st.sidebar.button("Sair"):
-    supabase.table("usuarios").update({"sessao_ativa": False}).eq("username", st.session_state["username"]).execute()
-    del st.session_state["logged_in"]
-    del st.session_state["username"]
+    marcar_logout(supabase, st.session_state["username"])
+    st.session_state.clear()
     st.rerun()
 
-# --- Entrada do usuário ---
-idade = st.number_input("Informe sua idade", min_value=0, max_value=120, step=1)
+# --- Entrada do usuário --- (per capita)
+st.markdown("### Pessoas a serem incluídas no plano")
+qtd = st.number_input("Quantas pessoas serão incluídas?", min_value=1, max_value=10, step=1, value=1)
+
+# Campos de idade dinâmicos
+idades = []
+cols_idades = st.columns(min(qtd, 4))  # até 4 por linha, depois quebra
+for i in range(qtd):
+    col = cols_idades[i % 4]
+    with col:
+        idade_i = st.number_input(f"Idade da pessoa {i+1}", min_value=0, max_value=120, step=1, key=f"idade_{i}")
+        idades.append(int(idade_i))
+
+# Filtro de faixa de preço (média per capita)
 faixa_de_preco = st.slider(
-    "Faixa de preço per capita (R$)",
-    min_value=100.0,
-    max_value=4000.0,
-    value=(100.0, 4000.0),
-    step=1.0
+    "Filtrar por **média per capita (R$)**",
+    min_value=100.0, max_value=4000.0,
+    value=(100.0, 4000.0), step=1.0
 )
 
+# Carrega dados
 df = pd.read_excel("planos_de_saude_unificado.xlsx", engine="openpyxl")
-st.markdown("### Tipo de Plano:")
-tipos_disponiveis = df["Tipo"].dropna().unique().tolist()
-tipos_disponiveis.sort()
-cols = st.columns(len(tipos_disponiveis))
+
+# Filtros de Tipo (checkboxes lado a lado)
+st.markdown("### Tipo de Plano")
+tipos_disponiveis = sorted(df["Tipo"].dropna().unique().tolist())
+cols_tipo = st.columns(len(tipos_disponiveis) if tipos_disponiveis else 1)
 tipos_selecionados = []
-
 for i, tipo in enumerate(tipos_disponiveis):
-    if cols[i].checkbox(tipo, value=True):
+    if cols_tipo[i].checkbox(tipo, value=True, key=f"tipo_{i}"):
         tipos_selecionados.append(tipo)
+if not tipos_selecionados:
+    tipos_selecionados = tipos_disponiveis[:]  # fallback
 
-# --- Interface: Filtro por Empresa ---
-st.markdown("### Empresa:")
-empresas = sorted(df["Empresa"].dropna().unique())
-cols_empresa = st.columns(len(empresas))
+# Filtros de Empresa (checkboxes lado a lado)
+st.markdown("### Empresa")
+empresas = sorted(df["Empresa"].dropna().unique().tolist())
+cols_emp = st.columns(len(empresas) if empresas else 1)
 empresas_selecionadas = []
+for i, emp in enumerate(empresas):
+    if cols_emp[i].checkbox(emp, value=True, key=f"emp_{i}"):
+        empresas_selecionadas.append(emp)
+if not empresas_selecionadas:
+    empresas_selecionadas = empresas[:]  # fallback
 
-for i, empresa in enumerate(empresas):
-    if cols_empresa[i].checkbox(empresa, value=True):
-        empresas_selecionadas.append(empresa)
+def idade_na_faixa(idade, faixa):
+    faixa = str(faixa).strip()
+    if '+' in faixa:
+        return idade >= int(faixa.replace('+', '').strip())
+    # formatos comuns: "00 - 18", "00 a 18", "0-18"
+    faixa = faixa.replace('a', '-').replace('A', '-').replace(' ', '')
+    ini, fim = faixa.split('-')
+    return int(ini) <= idade <= int(fim)
 
+# Normaliza Validade para período mensal seguro
+# Validade esperada como "YYYY-MM". Coerção para datas e comparação mensal.
+val_raw = df["Validade"].astype(str).str.strip()
+df["_val_dt"] = pd.to_datetime(val_raw + "-01", errors="coerce")  # 1º dia do mês
+hoje_m = pd.to_datetime(datetime.now().strftime("%Y-%m") + "-01")
 
+# Aplica filtros básicos antes da cotação
+df_base = df[
+    df["Tipo"].isin(tipos_selecionados) &
+    df["Empresa"].isin(empresas_selecionadas)
+].copy()
+
+# Monta cotação por plano (Empresa, Tipo, Abrangência, Validade)
+# Para cada plano, precisa existir 1 linha por idade informada (faixa compatível).
+grupos = ["Empresa", "Tipo", "Abrangência", "Validade", "_val_dt", "Associado"]
+resultados = []
+for chave, bloco in df_base.groupby(grupos):
+    empresa, tipo, abr, validade, val_dt, assoc = chave
+    precos = []
+    ok = True
+    for idade in idades:
+        # filtra linhas do bloco que atendem a essa idade
+        match = bloco[bloco["Idade"].apply(lambda x: idade_na_faixa(idade, x))]
+        if match.empty:
+            ok = False
+            break
+        # preço para essa idade (se houver mais de uma linha, pega a primeira)
+        preco = match.iloc[0]["Preço"]
+        if pd.isna(preco):
+            ok = False
+            break
+        precos.append(float(preco))
+    if not ok:
+        continue
+
+    total = sum(precos)
+    media = total / len(idades) if idades else 0.0
+    resultados.append({
+        "Empresa": empresa,
+        "Tipo": tipo,
+        "Abrangência": abr,
+        "Validade": validade,
+        "_val_dt": val_dt,
+        "Total": total,
+        "Média per capita": media,
+        "Detalhe preços": " + ".join([f"R$ {p:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") for p in precos])
+    })
+
+# DataFrame agregado dos planos
 if st.button("Fazer cotação"):
     atualizar_sessao(st.session_state["username"])
-    df = pd.read_excel("planos_de_saude_unificado.xlsx", engine="openpyxl")
-    df["Validade"] = df["Validade"].astype(str)
 
-    hoje = datetime.today().strftime("%Y-%m")
-    planos_filtrados = df[df["Idade"].apply(lambda x: idade_na_faixa(idade, x))]
-
-    # --- Aplicar Filtros ---
-    planos_filtrados = planos_filtrados[
-        (planos_filtrados["Preço"] >= faixa_de_preco[0]) &
-        (planos_filtrados["Preço"] <= faixa_de_preco[1]) &
-        (planos_filtrados["Tipo"].isin(tipos_selecionados)) &
-        (planos_filtrados["Empresa"].isin(empresas_selecionadas))
-    ]
-
-    if planos_filtrados.empty:
-        st.warning("Nenhum plano encontrado para essa faixa etária.")
+    if not resultados:
+        st.warning("Nenhum plano atende a todas as idades informadas com os filtros atuais.")
     else:
-        planos_filtrados = planos_filtrados.sort_values("Preço", ascending=False)
-        planos_filtrados['Preço'] = planos_filtrados['Preço'].apply(
-            lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".") if pd.notnull(x) and isinstance(x, (int, float)) else x
-        )
+        df_cot = pd.DataFrame(resultados)
 
-        planos_vencidos = planos_filtrados[planos_filtrados["Validade"] < hoje]
+        # Filtra pela MÉDIA per capita (como você pediu)
+        df_cot = df_cot[
+            (df_cot["Média per capita"] >= faixa_de_preco[0]) &
+            (df_cot["Média per capita"] <= faixa_de_preco[1])
+        ]
 
-        planos_filtrados["Validade"] = planos_filtrados["Validade"].apply(formatar_validade)
-        planos_vencidos["Validade"] = planos_vencidos["Validade"].apply(formatar_validade)
+        if df_cot.empty:
+            st.warning("Nenhum plano dentro da faixa de **média per capita** selecionada.")
+        else:
+            # Ordena do maior ao menor pela média per capita
+            df_cot = df_cot.sort_values("Média per capita", ascending=False)
 
-        st.markdown("### ✅ Planos válidos:")
-        st.dataframe(planos_filtrados.reset_index(drop=True),
-            use_container_width=True,
-            hide_index=True
-        )
+            # Formata valores
+            df_cot_fmt = df_cot.copy()
+            df_cot_fmt["Total"] = df_cot_fmt["Total"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+            df_cot_fmt["Média per capita"] = df_cot_fmt["Média per capita"].apply(lambda x: f"R$ {x:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+            # Formata Validade para "Mês de AAAA"
+            meses_pt = {
+                "01": "Janeiro", "02": "Fevereiro", "03": "Março", "04": "Abril",
+                "05": "Maio", "06": "Junho", "07": "Julho", "08": "Agosto",
+                "09": "Setembro", "10": "Outubro", "11": "Novembro", "12": "Dezembro"
+            }
+            def formatar_validade(yyyymm):
+                try:
+                    ano, mes = str(yyyymm).split("-")
+                    return f"{meses_pt.get(mes.zfill(2), mes)} de {ano}"
+                except:
+                    return yyyymm
+            df_cot_fmt["Validade"] = df_cot_fmt["Validade"].astype(str).str.strip().apply(formatar_validade)
 
-        if not planos_vencidos.empty:
-            st.warning("⚠️ Os planos abaixo perderam a validade e estão com valores possivelmente desatualizados.")
-            st.dataframe(planos_filtrados.reset_index(drop=True),
+            # Separa vencidos x válidos usando datas (sem erro de string)
+            vencidos_mask = df_cot["_val_dt"].notna() & (df_cot["_val_dt"] < hoje_m)
+            df_validos = df_cot_fmt.loc[~vencidos_mask].drop(columns=["_val_dt"])
+            df_vencidos = df_cot_fmt.loc[vencidos_mask].drop(columns=["_val_dt"])
+
+            st.markdown("### ✅ Planos válidos")
+            st.dataframe(
+                df_validos.reset_index(drop=True),
                 use_container_width=True,
                 hide_index=True
             )
 
-        st.markdown("""
-        ### 🔍 Entenda a Coparticipação
-        - **Coparticipação Parcial:** o plano cobre a maioria dos procedimentos, e você paga apenas uma parte de consultas ou exames.
-        - **Coparticipação Total:** você paga integralmente por cada procedimento realizado, com o plano oferecendo apenas cobertura de internação e exames de alto custo.
-        
-        ### 🛏️ Enfermaria x Apartamento
-        - **Enfermaria:** quarto coletivo, geralmente com 2 ou mais pacientes.
-        - **Apartamento:** quarto individual, com maior privacidade e conforto.
-        """)
+            if not df_vencidos.empty:
+                st.warning("⚠️ Os planos abaixo perderam a validade e serão atualizados.")
+                st.dataframe(
+                    df_vencidos.reset_index(drop=True),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            # Explicações
+            st.markdown("""
+            ### 🔍 Entenda a Coparticipação
+            - **Coparticipação Parcial:** o plano cobre a maioria dos procedimentos, e você paga apenas uma parte de consultas ou exames.
+            - **Coparticipação Total:** você paga integralmente por cada procedimento realizado, com o plano oferecendo apenas cobertura de internação e exames de alto custo.
+
+            ### 🛏️ Enfermaria x Apartamento
+            - **Enfermaria:** quarto coletivo, geralmente com 2 ou mais pacientes.
+            - **Apartamento:** quarto individual, com maior privacidade e conforto.
+            """)
