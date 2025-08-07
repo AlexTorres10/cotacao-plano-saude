@@ -5,7 +5,7 @@ import bcrypt
 from datetime import datetime, timezone, timedelta
 import random
 import uuid
-
+import base64
 # --- Conexão com Supabase ---
 SUPABASE_URL = st.secrets["supabase"]["url"]
 SUPABASE_KEY = st.secrets["supabase"]["key"]
@@ -21,6 +21,26 @@ supabase.table("usuarios") \
     .lt("ultima_atividade", limite) \
     .execute()
 
+def get_base64_of_image(image_path):
+    with open(image_path, "rb") as img_file:
+        return base64.b64encode(img_file.read()).decode()
+    
+img_base64 = get_base64_of_image("cotefacil.jpg")
+
+# --- Estilo CSS ---
+st.markdown(
+    f"""
+    <style>
+    .stApp {{
+        background-image: linear-gradient(rgba(255,255,255,0.8), rgba(255,255,255,0.8)), url("data:image/png;base64,{img_base64}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 # --- Funções auxiliares ---
 def formatar_validade(yyyymm):
     meses_pt = {
@@ -124,7 +144,7 @@ if st.session_state.get("logged_in"):
 
 # --- Tela de login ---
 def login():
-    st.title("Login - ST Planos de Saúde")
+    st.title("Login - CoteFácil Saúde")
     username = st.text_input("Usuário")
     password = st.text_input("Senha", type="password")
 
@@ -186,7 +206,7 @@ if "logged_in" not in st.session_state or not st.session_state["logged_in"]:
     st.stop()
 
 # --- Conteúdo principal ---
-st.title("ST Planos de Saúde")
+st.title("CoteFácil Saúde")
 st.sidebar.success(f"Logado como: {st.session_state['username']}")
 if st.sidebar.button("Sair"):
     marcar_logout(supabase, st.session_state["username"])
@@ -194,7 +214,7 @@ if st.sidebar.button("Sair"):
     st.rerun()
 
 # --- Entrada do usuário --- (per capita)
-st.markdown("### Pessoas a serem incluídas no plano")
+st.markdown("### Cotação de Planos de Saúde")
 qtd = st.number_input("Quantas pessoas serão incluídas?", min_value=1, max_value=10, step=1, value=1)
 
 # Campos de idade dinâmicos
@@ -208,7 +228,7 @@ for i in range(qtd):
 
 # Filtro de faixa de preço (média per capita)
 faixa_de_preco = st.slider(
-    "Filtrar por **média per capita (R$)**",
+    "Filtro por **média per capita (R$)** - Valor por cada pessoa incluída no plano",
     min_value=100.0, max_value=4000.0,
     value=(100.0, 4000.0), step=1.0
 )
