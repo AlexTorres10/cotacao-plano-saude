@@ -12,7 +12,7 @@ SUPABASE_KEY = st.secrets["supabase"]["key"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Configuração inicial do app ---
-st.set_page_config(page_title="Cotação de Planos de Saúde", layout="centered")
+st.set_page_config(page_title="ST Planos de Saúde", layout="centered")
 
 limite = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
 supabase.table("usuarios") \
@@ -124,7 +124,7 @@ if st.session_state.get("logged_in"):
 
 # --- Tela de login ---
 def login():
-    st.title("Login - Cotação de Planos de Saúde")
+    st.title("Login - ST Planos de Saúde")
     username = st.text_input("Usuário")
     password = st.text_input("Senha", type="password")
 
