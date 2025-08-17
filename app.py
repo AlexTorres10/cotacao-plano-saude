@@ -12,7 +12,7 @@ SUPABASE_KEY = st.secrets["supabase"]["key"]
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- Configuração inicial do app ---
-st.set_page_config(page_title="ST Planos de Saúde", layout="centered")
+st.set_page_config(page_title="CoteFácil Saúde", layout="centered")
 
 limite = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
 supabase.table("usuarios") \
@@ -144,6 +144,7 @@ if st.session_state.get("logged_in"):
 
 # --- Tela de login ---
 def login():
+    
     st.title("Login - CoteFácil Saúde")
     username = st.text_input("Usuário")
     password = st.text_input("Senha", type="password")
@@ -154,6 +155,22 @@ def login():
     # with col2:
     #     esqueci = st.button("Esqueci minha senha")
     entrar = st.button("Entrar")
+
+    st.markdown(
+        """
+        <div style="background-color:#f0f2f6;padding:20px;border-radius:10px;margin-bottom:30px;">
+            <h4 style="margin-top:0;">Compare os principais planos de saúde em um só lugar.<br>
+            <span style="color:#0a66c2;">Rápido, fácil e 100% online.</span></h4>
+            <ul style="list-style: none; padding-left: 0;">
+                <li>✔️ Sem planilhas</li>
+                <li>✔️ Sem confusão</li>
+                <li>✔️ Só as melhores opções pra você</li>
+            </ul>
+            <p style="font-weight:bold;color:#0a66c2;">CoteFácil Saúde — sua escolha, sem complicação.</p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     limite = (datetime.now() - timedelta(minutes=20)).isoformat()
 
